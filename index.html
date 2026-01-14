@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SNAKE NEON ULTRA</title>
+    <title>SNAKE NEON: EVOLVED</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
         :root {
             --neon: #00ff41;
             --accent: #ff003c;
+            --gold: #ffcc00;
             --bg: #050505;
         }
 
@@ -25,7 +26,7 @@
             overflow: hidden;
         }
 
-        /* Scanline Effect */
+        /* Scanline CRT Effect */
         body::before {
             content: " ";
             position: absolute;
@@ -45,10 +46,7 @@
             background: #000;
         }
 
-        canvas {
-            display: block;
-            image-rendering: pixelated;
-        }
+        canvas { display: block; image-rendering: pixelated; }
 
         .ui-layer {
             position: absolute;
@@ -57,15 +55,16 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9);
             text-align: center;
-            transition: 0.3s;
+            z-index: 10;
         }
 
         .hidden { display: none !important; }
 
         h1 { font-size: 3rem; text-shadow: 0 0 20px var(--neon); margin: 0; }
-        p { letter-spacing: 2px; }
+        h2 { color: var(--gold); text-shadow: 0 0 15px var(--gold); }
+        p { letter-spacing: 2px; margin: 10px 0; }
 
         .btn {
             background: transparent;
@@ -95,16 +94,24 @@
             font-size: 1rem;
         }
 
-        #shake-container { transition: transform 0.1s; }
+        #flash {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 5;
+        }
     </style>
 </head>
 <body>
 
     <div id="shake-container">
         <div id="game-wrapper">
+            <div id="flash"></div>
             <div class="stats">
                 <div>SCORE: <span id="score">000</span></div>
-                <div>LVL: <span id="level">1</span></div>
+                <div>LEVEL: <span id="level">1</span></div>
                 <div>HI: <span id="highscore">000</span></div>
             </div>
 
@@ -113,6 +120,14 @@
                 <h1>NEON SNAKE</h1>
                 <p>PROTOCOL: SLITHER</p>
                 <button class="btn" onclick="init()">Initialize</button>
+            </div>
+
+            <!-- Level Up Screen -->
+            <div id="level-screen" class="ui-layer hidden">
+                <h2 id="level-title">LEVEL 1 CLEAR</h2>
+                <p>SPEED INCREASING...</p>
+                <button class="btn" id="continue-btn" onclick="continueToNextLevel()">Continue</button>
+                <p style="font-size: 0.8rem; opacity: 0.6;">(Or press SPACE)</p>
             </div>
 
             <!-- Game Over Screen -->
@@ -132,26 +147,28 @@
     const scoreEl = document.getElementById('score');
     const highscoreEl = document.getElementById('highscore');
     const levelEl = document.getElementById('level');
-    const shakeCont = document.getElementById('shake-container');
+    const flashEl = document.getElementById('flash');
+    
+    const startScreen = document.getElementById('start-screen');
+    const levelScreen = document.getElementById('level-screen');
+    const deathScreen = document.getElementById('death-screen');
 
-    // Game Constants
     const GRID = 20;
     const ROWS = canvas.height / GRID;
     const COLS = canvas.width / GRID;
 
-    // Game Variables
-    let snake, apple, particles, score, level, gameLoop, velocity, lastTime, running;
+    let snake, apple, particles, score, level, gameLoop, velocity, running, isPaused;
     let highScore = localStorage.getItem('ultraSnakeHi') || 0;
     highscoreEl.innerText = String(highScore).padStart(3, '0');
 
-    // Audio Context (Synthesizer)
+    // Audio Context
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    function playSound(freq, type, duration) {
+    function playSound(freq, type, duration, volume = 0.1) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.setValueAtTime(volume, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -160,25 +177,37 @@
     }
 
     function init() {
-        // Reset Logic
         snake = { x: 10, y: 10, dx: 1, dy: 0, body: [{x:10, y:10}, {x:9, y:10}, {x:8, y:10}], length: 3 };
         apple = { x: 15, y: 15 };
         particles = [];
         score = 0;
         level = 1;
-        velocity = 120; // ms per move
+        velocity = 120;
         running = true;
+        isPaused = false;
 
-        document.getElementById('start-screen').classList.add('hidden');
-        document.getElementById('death-screen').classList.add('hidden');
+        startScreen.classList.add('hidden');
+        deathScreen.classList.add('hidden');
+        levelScreen.classList.add('hidden');
+        
+        scoreEl.innerText = "000";
+        levelEl.innerText = "1";
         
         if(gameLoop) clearTimeout(gameLoop);
         main();
         playSound(440, 'square', 0.1);
     }
 
-    // Input Handling
+    function continueToNextLevel() {
+        levelScreen.classList.add('hidden');
+        isPaused = false;
+        main(); // Restart loop
+        playSound(523.25, 'square', 0.1); // C5
+    }
+
     window.onkeydown = e => {
+        if(e.code === "Space" && isPaused) continueToNextLevel();
+
         const dir = e.key;
         if(dir === 'ArrowUp' && snake.dy === 0) { snake.dx = 0; snake.dy = -1; }
         if(dir === 'ArrowDown' && snake.dy === 0) { snake.dx = 0; snake.dy = 1; }
@@ -186,104 +215,109 @@
         if(dir === 'ArrowRight' && snake.dx === 0) { snake.dx = 1; snake.dy = 0; }
     };
 
-    function spawnApple() {
-        apple.x = Math.floor(Math.random() * COLS);
-        apple.y = Math.floor(Math.random() * ROWS);
-        // Don't spawn on snake body
-        snake.body.forEach(part => {
-            if(part.x === apple.x && part.y === apple.y) spawnApple();
-        });
-    }
+    function triggerLevelUp() {
+        isPaused = true;
+        document.getElementById('level-title').innerText = `LEVEL ${level} COMPLETE`;
+        levelScreen.classList.remove('hidden');
+        
+        // Level Up Sound Fanfare
+        playSound(523, 'sine', 0.3);
+        setTimeout(() => playSound(659, 'sine', 0.3), 150);
+        setTimeout(() => playSound(783, 'sine', 0.5), 300);
 
-    function createExplosion(x, y, color) {
-        for(let i=0; i<10; i++) {
-            particles.push({
-                x: x * GRID + GRID/2,
-                y: y * GRID + GRID/2,
-                vx: (Math.random() - 0.5) * 6,
-                vy: (Math.random() - 0.5) * 6,
-                life: 1.0,
-                color: color
-            });
-        }
+        // Flash Effect
+        flashEl.style.opacity = "0.8";
+        setTimeout(() => flashEl.style.opacity = "0", 200);
+
+        level++;
+        velocity = Math.max(40, velocity - 15);
+        levelEl.innerText = level;
     }
 
     function update() {
-        // Move Head
+        if(isPaused) return;
+
         const head = { x: snake.x + snake.dx, y: snake.y + snake.dy };
 
-        // Wall Warp
         if(head.x < 0) head.x = COLS-1;
-        if(head.x >= COLS) head.x = 0;
+        else if(head.x >= COLS) head.x = 0;
         if(head.y < 0) head.y = ROWS-1;
-        if(head.y >= ROWS) head.y = 0;
+        else if(head.y >= ROWS) head.y = 0;
 
-        // Self Collision
-        snake.body.forEach(part => {
-            if(part.x === head.x && part.y === head.y) gameOver();
-        });
-
-        if(!running) return;
+        for(let i=0; i < snake.body.length; i++) {
+            if(snake.body[i].x === head.x && snake.body[i].y === head.y) return gameOver();
+        }
 
         snake.x = head.x;
         snake.y = head.y;
         snake.body.unshift({x: head.x, y: head.y});
 
-        // Eat Apple
         if(head.x === apple.x && head.y === apple.y) {
             score += 10;
-            playSound(660, 'sine', 0.1);
-            setTimeout(() => playSound(880, 'sine', 0.1), 50);
-            createExplosion(apple.x, apple.y, '#00ff41');
-            spawnApple();
-            if(score % 50 === 0) {
-                level++;
-                velocity = Math.max(50, velocity - 10);
-            }
             scoreEl.innerText = String(score).padStart(3, '0');
-            levelEl.innerText = level;
+            playSound(660, 'sine', 0.1);
+            createExplosion(apple.x, apple.y, '#00ff41');
+            
+            // Re-spawn apple
+            apple.x = Math.floor(Math.random() * COLS);
+            apple.y = Math.floor(Math.random() * ROWS);
+
+            // Check for Level Up (Every 50 points)
+            if(score > 0 && score % 50 === 0) {
+                triggerLevelUp();
+            }
         } else {
             snake.body.pop();
         }
 
-        // Particle Physics
         particles.forEach((p, i) => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.life -= 0.02;
+            p.x += p.vx; p.y += p.vy; p.life -= 0.02;
             if(p.life <= 0) particles.splice(i, 1);
         });
     }
 
+    function createExplosion(x, y, color) {
+        for(let i=0; i<12; i++) {
+            particles.push({
+                x: x * GRID + GRID/2, y: y * GRID + GRID/2,
+                vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+                life: 1.0, color: color
+            });
+        }
+    }
+
     function draw() {
-        // Background with motion blur
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw Apple
+        // Apple
         ctx.shadowBlur = 15;
-        ctx.shadowColor = '#ff003c';
-        ctx.fillStyle = '#ff003c';
+        ctx.shadowColor = varHex('--accent');
+        ctx.fillStyle = varHex('--accent');
         ctx.fillRect(apple.x * GRID + 2, apple.y * GRID + 2, GRID - 4, GRID - 4);
 
-        // Draw Snake
+        // Snake
         snake.body.forEach((part, i) => {
-            const alpha = 1 - (i / snake.body.length * 0.8);
             ctx.shadowBlur = 10;
-            ctx.shadowColor = '#00ff41';
-            ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+            ctx.shadowColor = varHex('--neon');
+            ctx.fillStyle = i === 0 ? '#fff' : `rgba(0, 255, 65, ${1 - i/snake.body.length})`;
             ctx.fillRect(part.x * GRID + 1, part.y * GRID + 1, GRID - 2, GRID - 2);
         });
 
-        // Draw Particles
+        // Particles
+        ctx.shadowBlur = 0;
         particles.forEach(p => {
             ctx.fillStyle = `rgba(0, 255, 65, ${p.life})`;
             ctx.fillRect(p.x, p.y, 2, 2);
         });
     }
 
+    function varHex(name) {
+        return name === '--neon' ? '#00ff41' : '#ff003c';
+    }
+
     function main() {
-        if(!running) return;
+        if(!running || isPaused) return;
         update();
         draw();
         gameLoop = setTimeout(main, velocity);
@@ -291,19 +325,14 @@
 
     function gameOver() {
         running = false;
-        playSound(150, 'sawtooth', 0.5);
-        shakeCont.style.transform = "translate(5px, 5px)";
-        setTimeout(() => shakeCont.style.transform = "translate(-5px, -5px)", 50);
-        setTimeout(() => shakeCont.style.transform = "translate(0, 0)", 100);
-
+        playSound(100, 'sawtooth', 0.4);
         if(score > highScore) {
             highScore = score;
             localStorage.setItem('ultraSnakeHi', highScore);
             highscoreEl.innerText = String(highScore).padStart(3, '0');
         }
-
         document.getElementById('final-score').innerText = `SCORE: ${score}`;
-        document.getElementById('death-screen').classList.remove('hidden');
+        deathScreen.classList.remove('hidden');
     }
 </script>
 </body>
