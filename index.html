@@ -3,130 +3,254 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retro Snake Game</title>
+    <title>Neon Snake Pro</title>
     <style>
-        /* CSS: Makes the game look nice */
+        :root {
+            --neon-pink: #ff007f;
+            --neon-blue: #00f3ff;
+            --bg-color: #0d0221;
+        }
+
         body {
+            background-color: var(--bg-color);
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
             margin: 0;
-            background-color: #1a1a2e;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
             color: white;
-            font-family: Arial, sans-serif;
-            flex-direction: column;
         }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0, 243, 255, 0.2);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
         canvas {
-            border: 5px solid #16213e;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            background-color: #0f3460;
+            display: block;
+            background-color: #0a0118;
+            border: 2px solid var(--neon-blue);
+            border-radius: 8px;
         }
-        .score {
-            font-size: 24px;
-            margin-bottom: 10px;
+
+        /* Overlay Styles (Start and Game Over screens) */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(13, 2, 33, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            transition: opacity 0.3s;
         }
+
+        .hidden { display: none; opacity: 0; }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            color: var(--neon-blue);
+            text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue);
+        }
+
+        .btn {
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            background: transparent;
+            color: var(--neon-pink);
+            border: 2px solid var(--neon-pink);
+            border-radius: 50px;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-weight: bold;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(255, 0, 127, 0.3);
+            margin-top: 20px;
+        }
+
+        .btn:hover {
+            background: var(--neon-pink);
+            color: white;
+            box-shadow: 0 0 30px var(--neon-pink);
+            transform: scale(1.05);
+        }
+
+        .stats-bar {
+            position: absolute;
+            top: -50px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--neon-blue);
+        }
+
+        .score-box { text-shadow: 0 0 5px var(--neon-blue); }
     </style>
 </head>
 <body>
 
-    <div class="score">Score: <span id="scoreVal">0</span></div>
-    <canvas id="snakeGame" width="400" height="400"></canvas>
+    <div id="game-container">
+        <!-- Live HUD -->
+        <div class="stats-bar">
+            <div class="score-box">Score: <span id="currentScore">0</span></div>
+            <div class="score-box">High: <span id="highScore">0</span></div>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="startScreen" class="overlay">
+            <h1>Neon Snake</h1>
+            <p>Use Arrow Keys to Slither</p>
+            <button class="btn" onclick="startGame()">Start Mission</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen" class="overlay hidden">
+            <h1 style="color: var(--neon-pink); text-shadow: 0 0 10px var(--neon-pink);">System Failure</h1>
+            <p id="finalScoreText">Final Score: 0</p>
+            <button class="btn" onclick="startGame()">Reboot System</button>
+        </div>
+
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+    </div>
 
     <script>
-        // JAVASCRIPT: The game logic
-        const canvas = document.getElementById("snakeGame");
-        const ctx = canvas.getContext("2d");
-        const scoreElement = document.getElementById("scoreVal");
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const scoreEl = document.getElementById('currentScore');
+        const highscoreEl = document.getElementById('highScore');
+        const finalScoreText = document.getElementById('finalScoreText');
 
-        const box = 20; // Size of one square
+        const grid = 20;
+        let count = 0;
         let score = 0;
-        let gameSpeed = 100; // Milliseconds
+        let highScore = localStorage.getItem('snakeHighScore') || 0;
+        highscoreEl.innerText = highScore;
 
-        // Initial Snake position (middle of screen)
-        let snake = [{ x: 10 * box, y: 10 * box }];
-        
-        // Initial Food position
-        let food = {
-            x: Math.floor(Math.random() * 19 + 1) * box,
-            y: Math.floor(Math.random() * 19 + 1) * box
+        let snake = {
+            x: 160,
+            y: 160,
+            dx: grid,
+            dy: 0,
+            cells: [],
+            maxCells: 4
         };
 
-        let d; // Direction
+        let apple = { x: 320, y: 320 };
 
-        // Listen for key presses
-        document.addEventListener("keydown", direction);
-
-        function direction(event) {
-            let key = event.keyCode;
-            // Prevent snake from reversing onto itself
-            if(key == 37 && d != "RIGHT") d = "LEFT";
-            else if(key == 38 && d != "DOWN") d = "UP";
-            else if(key == 39 && d != "LEFT") d = "RIGHT";
-            else if(key == 40 && d != "UP") d = "DOWN";
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min)) + min;
         }
 
-        function collision(head, array) {
-            for(let i = 0; i < array.length; i++) {
-                if(head.x == array[i].x && head.y == array[i].y) return true;
-            }
-            return false;
+        function startGame() {
+            // Reset game state
+            score = 0;
+            scoreEl.innerText = score;
+            snake.x = 160;
+            snake.y = 160;
+            snake.cells = [];
+            snake.maxCells = 4;
+            snake.dx = grid;
+            snake.dy = 0;
+            
+            // Hide overlays
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            // Start loop if not already running
+            requestAnimationFrame(loop);
         }
 
-        function draw() {
-            // Clear the background
-            ctx.fillStyle = "#0f3460";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        function loop() {
+            // Speed control: 15fps (higher = harder)
+            gameLoop = requestAnimationFrame(loop);
+            if (++count < 6) return; 
+            count = 0;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Move snake
+            snake.x += snake.dx;
+            snake.y += snake.dy;
+
+            // Screen wrap (teleport to other side)
+            if (snake.x < 0) snake.x = canvas.width - grid;
+            else if (snake.x >= canvas.width) snake.x = 0;
+            if (snake.y < 0) snake.y = canvas.height - grid;
+            else if (snake.y >= canvas.height) snake.y = 0;
+
+            // Track snake positions
+            snake.cells.unshift({x: snake.x, y: snake.y});
+            if (snake.cells.length > snake.maxCells) snake.cells.pop();
+
+            // Draw Apple
+            ctx.fillStyle = '#ff007f';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ff007f';
+            ctx.fillRect(apple.x, apple.y, grid-1, grid-1);
 
             // Draw Snake
-            for(let i = 0; i < snake.length; i++) {
-                ctx.fillStyle = (i == 0) ? "#e94560" : "#ffffff";
-                ctx.fillRect(snake[i].x, snake[i].y, box, box);
-                ctx.strokeStyle = "#0f3460";
-                ctx.strokeRect(snake[i].x, snake[i].y, box, box);
-            }
+            ctx.fillStyle = '#00f3ff';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00f3ff';
+            
+            snake.cells.forEach((cell, index) => {
+                // Slightly round the snake body
+                ctx.fillRect(cell.x, cell.y, grid-1, grid-1);
 
-            // Draw Food
-            ctx.fillStyle = "#4ecca3";
-            ctx.fillRect(food.x, food.y, box, box);
+                // Collision with apple
+                if (cell.x === apple.x && cell.y === apple.y) {
+                    snake.maxCells++;
+                    score++;
+                    scoreEl.innerText = score;
+                    apple.x = getRandomInt(0, 20) * grid;
+                    apple.y = getRandomInt(0, 20) * grid;
+                }
 
-            // Current Head position
-            let snakeX = snake[0].x;
-            let snakeY = snake[0].y;
-
-            // Move the head based on direction
-            if( d == "LEFT") snakeX -= box;
-            if( d == "UP") snakeY -= box;
-            if( d == "RIGHT") snakeX += box;
-            if( d == "DOWN") snakeY += box;
-
-            // Check if Snake eats the food
-            if(snakeX == food.x && snakeY == food.y) {
-                score++;
-                scoreElement.innerHTML = score;
-                food = {
-                    x: Math.floor(Math.random() * 19 + 1) * box,
-                    y: Math.floor(Math.random() * 19 + 1) * box
-                };
-                // Don't remove the tail, so it grows
-            } else {
-                snake.pop(); // Remove the tail
-            }
-
-            // New Head
-            let newHead = { x: snakeX, y: snakeY };
-
-            // Game Over rules (Wall or Self-collision)
-            if(snakeX < 0 || snakeX >= canvas.width || snakeY < 0 || snakeY >= canvas.height || collision(newHead, snake)) {
-                clearInterval(game);
-                alert("Game Over! Your Score: " + score);
-                location.reload(); // Restart game
-            }
-
-            snake.unshift(newHead); // Add new head to snake
+                // Collision with self
+                for (let i = index + 1; i < snake.cells.length; i++) {
+                    if (cell.x === snake.cells[i].x && cell.y === snake.cells[i].y) {
+                        endGame();
+                    }
+                }
+            });
         }
 
-        let game = setInterval(draw, gameSpeed);
+        function endGame() {
+            cancelAnimationFrame(gameLoop);
+            
+            // Update High Score
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('snakeHighScore', highScore);
+                highscoreEl.innerText = highScore;
+            }
+
+            finalScoreText.innerText = "Final Score: " + score;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        document.addEventListener('keydown', function(e) {
+            // Prevent snake from going back on itself
+            if (e.which === 37 && snake.dx === 0) { snake.dx = -grid; snake.dy = 0; }
+            else if (e.which === 38 && snake.dy === 0) { snake.dy = -grid; snake.dx = 0; }
+            else if (e.which === 39 && snake.dx === 0) { snake.dx = grid; snake.dy = 0; }
+            else if (e.which === 40 && snake.dy === 0) { snake.dy = grid; snake.dx = 0; }
+        });
     </script>
 </body>
 </html>
